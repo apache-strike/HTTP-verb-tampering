@@ -1,5 +1,5 @@
-# HTTP-verb-tempering
-HTTP verb tempering testing script
+# HTTP-verb-tampering
+HTTP verb tampering testing script
 
 # Setup
 
@@ -9,7 +9,7 @@ git clone https://github.com/apache-strike/HTTP-verb-tempering.git
 
 # Usage
 
-python3 http_verb_tempering.py -u https://target.com
+python3 http_verb_tampering.py -u https://target.com
 
 # Contributing
 
