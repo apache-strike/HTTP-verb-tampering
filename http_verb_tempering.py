@@ -1,8 +1,40 @@
-from colored import fore, back, style
-import os
+import urllib3
 import argparse
 import requests
-from urllib3.exceptions import InsecureRequestWarning
+from rich.table import Table
+from rich import box
+from rich.console import Console
+from rich.progress import track
+
+class Logger:
+    def __init__(self, verbosity=0, quiet=False):
+        self.verbosity = verbosity
+        self.quiet = quiet
+
+    def debug(self, message):
+        if self.verbosity == 2:
+            console.print("{}[DEBUG]{} {}".format("[yellow3]", "[/yellow3]", message), highlight=False)
+
+    def verbose(self, message):
+        if self.verbosity >= 1:
+            console.print("{}[VERBOSE]{} {}".format("[blue]", "[/blue]", message), highlight=False)
+
+    def info(self, message):
+        if not self.quiet:
+            console.print("{}[*]{} {}".format("[bold blue]", "[/bold blue]", message), highlight=False)
+
+    def success(self, message):
+        if not self.quiet:
+            console.print("{}[+]{} {}".format("[bold green]", "[/bold green]", message), highlight=False)
+
+    def warning(self, message):
+        if not self.quiet:
+            console.print("{}[-]{} {}".format("[bold orange3]", "[/bold orange3]", message), highlight=False)
+
+    def error(self, message):
+        if not self.quiet:
+            console.print("{}[!]{} {}".format("[bold red]", "[/bold red]", message), highlight=False)
+
 
 def file_reader(file_name):
     flist = []
@@ -12,8 +44,7 @@ def file_reader(file_name):
         flist.append(f.replace("\n",""))
     return flist
 
-def main():
-
+def get_options():
     parser = argparse.ArgumentParser()
     parser.add_argument('-u', "--url", required=True, help="e.g. https://example.com:port/path")
     parser.add_argument(
@@ -32,50 +63,71 @@ def main():
         default=False,
         help="show no information at all",
     )
-    args = parser.parse_args()
-    logger = Logger(args.verbosity, args.quiet)
-    url = args.url
-    requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
-    #Logger.verbose(f"Testing on host: {url}")
-    print("Testing on host: " + fore.LIGHT_GREEN + style.BOLD + url + style.RESET)
-    response = requests.options(url, verify=False)
-    if response.status_code == 200:
-        print('The HTTP methods available are: ')
-        try:
-            methods = response.headers['Allow'].replace(" ","").split(',')
-        except:
-            methods = []
+    parser.add_argument(
+        "-k",
+        "--insecure",
+        dest="verify",
+        action="store_false",
+        default=True,
+        help="Allow insecure server connections when using SSL",
+    )
+    parser.add_argument(
+        "-w",
+        "--wordlist",
+        dest="wordlist",
+        action="store",
+        default="http_verb_list",
+        help="HTTP verbs wordlist",
+    )
+    options = parser.parse_args()
+    return options
 
-        for verb in methods:
-            print(fore.LIGHT_YELLOW + verb + style.RESET)
-            tmp_methods = file_reader('http_verb_list')
-            methods = methods + list(set(tmp_methods) - set(methods))
-        if methods == []:
-            print(fore.LIGHT_YELLOW + "OPTIONS HTTP method available but seems empty" + style.RESET)
-            methods = file_reader('http_verb_list')
+
+def main():
+    logger.info("Starting HTTP verb enumerating and tampering")
+    with open(options.wordlist, "r") as infile:
+        methods = infile.read().split()
+    results = {}
+    logger.verbose("Pulling available methods with an OPTION request")
+    r = requests.options(url=options.url, verify=options.verify)
+    if r.status_code == 200:
+        logger.verbose("URL accepts OPTIONS")
+        if r.headers["Allow"]:
+            logger.verbose("URL answers with a list of options")
+            for method in r.headers["Allow"].replace(" ", "").split(","):
+                if method not in methods:
+                    logger.debug(f"Adding new method {method} to methods")
+                    methods.append(method)
+                else:
+                    logger.debug(f"Method {method} already in known methods, passing")
+        else:
+            logger.verbose("URL doesn't answer with a list of options")
     else:
-        print(fore.LIGHT_RED +'OPTIONS HTTP method is disabled' + style.RESET)
-        print(fore.LIGHT_YELLOW + 'Testing with HTTP methods dictionary instead:'+ style.RESET)
-        methods = file_reader('http_verb_list')
-    for verb in methods:
-        print(fore.LIGHT_GREEN + "Testing with verb: " + style.BOLD + verb + style.RESET)
-        try:
-            response = getattr(requests, verb.lower())
-            response = response(url, verify=False)
-            code = response.status_code
-            print('HTTP/ ' + str(code) + ' ' + response.reason)
-        #headers = response.headers
-        #print(fore.LIGHT_YELLOW + 'Header:' + style.RESET)
-        #print(headers)
-        #print(fore.LIGHT_YELLOW + 'Body:' + style.RESET)
-        #print(response.text)
-        except:
-            os.system('curl -LIk -X' + verb + ' ' + url + ' 2>&1 | head -n 4 | tail -1')
+        logger.verbose("URL rejects OPTIONS")
+    for method in track(methods):
+        logger.debug(f"Requesting URL with method {method}")
+        r = requests.request(method=method, url=options.url, verify=options.verify)
+        logger.debug(f"Obtained results: {str(r.status_code)}, {r.reason}")
+        # TODO : filter on status code to print results with color
+        results[method] = {"status_code": str(r.status_code), "reason": r.reason[:100]}
+    table = Table(show_header=True, header_style="bold blue", border_style="blue", box=box.SIMPLE)
+    table.add_column("Method")
+    table.add_column("Status code")
+    table.add_column("Reason")
+    for result in results.items():
+        table.add_row(result[0], result[1]["status_code"], result[1]["reason"])
+    console.log(table)
 
 
 if __name__ == '__main__':
     try:
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+        options = get_options()
+        logger = Logger(options.verbosity, options.quiet)
+        console = Console()
         main()
+
     except KeyboardInterrupt:
-        print ("\n Bye")
+        logger.info("Terminating script...")
         raise SystemExit
