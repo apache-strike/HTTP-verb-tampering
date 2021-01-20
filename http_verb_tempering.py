@@ -35,14 +35,13 @@ class Logger:
         if not self.quiet:
             console.print("{}[!]{} {}".format("[bold red]", "[/bold red]", message), highlight=False)
 
+    def success(self, message):
+        if not self.quiet:
+            console.print(message, style="bold green")
 
-def file_reader(file_name):
-    flist = []
-    file = open(file_name,"r")
-    file_in = file.readlines()
-    for f in file_in:
-        flist.append(f.replace("\n",""))
-    return flist
+    def fail(self, message):
+        if not self.quiet:
+            console.print(message, style="bold red")
 
 def get_options():
     parser = argparse.ArgumentParser()
@@ -82,25 +81,27 @@ def get_options():
     options = parser.parse_args()
     return options
 
-
 def main():
     logger.info("Starting HTTP verb enumerating and tampering")
+    logger.info(f"Target:{options.url}")
     with open(options.wordlist, "r") as infile:
         methods = infile.read().split()
     results = {}
+    critical_methods = ["PUT", "DELETE", "CONNECT", "TRACE"]
     logger.verbose("Pulling available methods with an OPTION request")
     r = requests.options(url=options.url, verify=options.verify)
     if r.status_code == 200:
         logger.verbose("URL accepts OPTIONS")
-        if r.headers["Allow"]:
+        try:
+            headers = r.headers["Allow"]
             logger.verbose("URL answers with a list of options")
-            for method in r.headers["Allow"].replace(" ", "").split(","):
+            for method in headers.replace(" ", "").split(","):
                 if method not in methods:
                     logger.debug(f"Adding new method {method} to methods")
                     methods.append(method)
                 else:
                     logger.debug(f"Method {method} already in known methods, passing")
-        else:
+        except:
             logger.verbose("URL doesn't answer with a list of options")
     else:
         logger.verbose("URL rejects OPTIONS")
@@ -108,14 +109,20 @@ def main():
         logger.debug(f"Requesting URL with method {method}")
         r = requests.request(method=method, url=options.url, verify=options.verify)
         logger.debug(f"Obtained results: {str(r.status_code)}, {r.reason}")
-        # TODO : filter on status code to print results with color
         results[method] = {"status_code": str(r.status_code), "reason": r.reason[:100]}
     table = Table(show_header=True, header_style="bold blue", border_style="blue", box=box.SIMPLE)
     table.add_column("Method")
     table.add_column("Status code")
     table.add_column("Reason")
     for result in results.items():
-        table.add_row(result[0], result[1]["status_code"], result[1]["reason"])
+        if int(result[1]["status_code"]) == 200:
+            if result[0] in critical_methods:
+                table.add_row("[bold black on green]" + result[0] + "[/bold black on green]", "[green]"+result[1]["status_code"]+"[/green]", result[1]["reason"])
+            else:
+                table.add_row(result[0], "[green]"+result[1]["status_code"]+"[/green]", result[1]["reason"])
+
+        else:
+            table.add_row(result[0], "[red]"+result[1]["status_code"]+"[/red]", result[1]["reason"])
     console.log(table)
 
 
