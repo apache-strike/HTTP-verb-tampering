@@ -5,7 +5,7 @@ HTTP verb tampering testing script
 
 pip3 install requests colored
 
-git clone https://github.com/apache-strike/HTTP-verb-tempering.git
+git clone https://github.com/apache-strike/HTTP-verb-tampering.git
 
 # Usage
 
